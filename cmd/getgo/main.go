@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -86,8 +87,35 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				fmt.Printf("%s\n", hdr.Name)
+
+				path := localInstallPath(installPath, hdr.Name)
+				fmt.Println(path)
+
+				switch hdr.Typeflag {
+				case tar.TypeDir:
+					if err := os.MkdirAll(path, 0755); err != nil {
+						log.Fatalf("error creating directory %s: %v", path, err)
+					}
+				case tar.TypeReg:
+					dir := filepath.Dir(path)
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						log.Fatalf("error creating directory %s: %s", dir, err)
+					}
+					file, err := os.Create(path)
+					file.Chmod(os.FileMode(hdr.Mode))
+					if err != nil {
+						log.Fatalf("error opening %s: %s", path, err)
+					}
+					if _, err := io.Copy(file, tr); err != nil {
+						log.Fatalf("error writing %s: %s", path, err)
+					}
+					file.Close()
+				default:
+					log.Fatalf("unknown type for %s", path)
+				}
 			}
+
+			// TODO: create symlink to make the new go the default
 
 			return false
 		}
@@ -108,6 +136,11 @@ func installPath(filename string) string {
 	}
 
 	return fmt.Sprintf("%s/opt/go/%s", home, match[index])
+}
+
+func localInstallPath(installPath string, archivePath string) string {
+	s := (strings.SplitN(archivePath, "/", 2))[1]
+	return installPath + "/" + s
 }
 
 func pathExists(path string) bool {
