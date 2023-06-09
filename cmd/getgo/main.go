@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -40,51 +42,84 @@ func main() {
 
 	doc.Find("a.download").EachWithBreak(func(i int, s *goquery.Selection) bool {
 		if val, ok := s.Attr("href"); ok {
-			url, err := url.Parse(val)
+			relativeUrl, err := url.Parse(val)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			filename := path.Base(url.EscapedPath())
+			filename := path.Base(relativeUrl.EscapedPath())
 
-			if strings.HasSuffix(filename, suffix) {
+			if !strings.HasSuffix(filename, suffix) {
+				return true
+			}
 
-				url := base.ResolveReference(url)
+			fmt.Printf("filename = %s\n", filename)
 
-				fmt.Printf("url = %s\n", url)
-
-				res, err := http.Get(url.String())
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				if res.StatusCode != 200 {
-					log.Fatalf("status code error: %d %s", res.StatusCode, res.Status)
-				}
-
-				zr, err := gzip.NewReader(res.Body)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				tr := tar.NewReader(zr)
-				for {
-					hdr, err := tr.Next()
-					if err == io.EOF {
-						break
-					}
-					if err != nil {
-						log.Fatal(err)
-					}
-					fmt.Printf("%s\n", hdr.Name)
-				}
-
+			installPath := installPath(filename)
+			if pathExists(installPath) {
+				fmt.Printf("already have this version\n")
 				return false
 			}
+
+			url := base.ResolveReference(relativeUrl)
+
+			res, err := http.Get(url.String())
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if res.StatusCode != 200 {
+				log.Fatalf("status code error: %d %s", res.StatusCode, res.Status)
+			}
+
+			zr, err := gzip.NewReader(res.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			tr := tar.NewReader(zr)
+			for {
+				hdr, err := tr.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Printf("%s\n", hdr.Name)
+			}
+
+			return false
 		}
 		return true
 	})
 
+}
+
+func installPath(filename string) string {
+	re := regexp.MustCompile(`go(?P<Version>\d+(\.\d+)+)`)
+
+	match := re.FindStringSubmatch(filename)
+	index := re.SubexpIndex("Version")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return fmt.Sprintf("%s/opt/go/%s", home, match[index])
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	log.Fatal(err)
+	return false
 }
 
 func archiveSuffix() string {
