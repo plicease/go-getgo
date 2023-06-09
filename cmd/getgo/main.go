@@ -115,7 +115,20 @@ func main() {
 				}
 			}
 
-			// TODO: create symlink to make the new go the default
+			symlinkName := filepath.Clean(installPath + "/../.path")
+
+			if pathExists(symlinkName) {
+				err := os.Remove(symlinkName)
+				if err != nil {
+					log.Fatalf("unable to remove %s: %s", symlinkName, err)
+				}
+			}
+
+			symlinkTarget := filepath.Base(installPath)
+
+			if err := os.Symlink(symlinkTarget, symlinkName); err != nil {
+				log.Fatalf("unable to create symlink %s %s: %s", symlinkTarget, symlinkName, err)
+			}
 
 			return false
 		}
